@@ -3,31 +3,31 @@ import math
 import random
 from collections import defaultdict
 from pathlib import Path
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.offsetbox import AnchoredOffsetbox, DrawingArea, HPacker, TextArea, VPacker
 
 
-# Extract results
+track_dir = Path(__file__).resolve().parent.parent.parent
+
 logfiles = {
-    # key: number in README results history
-    # value: label
-    # 2: 'AdamW',
     12: 'Muon',
     5: 'MuonH',
     4: 'AdamH',
-    7: 'Muon²',
+    7: 'Muon\u00b2',
     8: 'NorMuonH',
     9: 'NorMuon w/ update clamp-min',
     10: 'NorMuon',
     11: 'ContraNorMuon w/ update clamp-min',
-    13: 'PMuon',
 }
+
 readme_rows = {}
 row_pattern = re.compile(
     r'^\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*([^|]+?)\s*\|.*?\|\s*\[log\]\((results/[^)]+)\)'
 )
-with open('README.md', 'r') as f:
+with open(track_dir / 'README.md', 'r') as f:
     for line in f:
         m = row_pattern.search(line)
         if m:
@@ -36,11 +36,12 @@ with open('README.md', 'r') as f:
             evidence = m.group(3).strip()
             logfile = m.group(4).removeprefix('results/').removesuffix('.txt')
             readme_rows[number] = (steps_to_target, evidence, logfile)
+
 pattern = re.compile(r'step:(\d+)/(\d+)\s+val_loss:([0-9.]+)')
 
 
 def format_evidence(evidence, steps_to_target):
-    evidence = re.sub(r'[✓✔✅Ⓧ]', '', evidence).strip()
+    evidence = re.sub(r'[\u2713\u2714\u2705\u24e7]', '', evidence).strip()
     return re.sub(r'\((n=\d+)\)', f'in {steps_to_target} steps (\\1)', evidence)
 
 
@@ -49,13 +50,9 @@ def add_legend(ax, legend_entries):
     for label, evidence, color in legend_entries:
         handle = DrawingArea(26, 18, 0, 0)
         handle.add_artist(Line2D(
-            [3, 13, 23],
-            [9, 9, 9],
-            marker='o',
-            markevery=[1],
-            markersize=3.5,
-            linewidth=2.2,
-            color=color,
+            [3, 13, 23], [9, 9, 9],
+            marker='o', markevery=[1], markersize=3.5,
+            linewidth=2.2, color=color,
         ))
         label_size = 7 if len(label) > 25 else 9
         text = VPacker(
@@ -63,22 +60,15 @@ def add_legend(ax, legend_entries):
                 TextArea(label, textprops={'fontsize': label_size}),
                 TextArea(evidence, textprops={'fontsize': 7}),
             ],
-            align='left',
-            pad=0,
-            sep=1,
+            align='left', pad=0, sep=1,
         )
         rows.append(HPacker(
-            children=[handle, text],
-            align='center',
-            pad=0,
-            sep=5,
+            children=[handle, text], align='center', pad=0, sep=5,
         ))
     legend = AnchoredOffsetbox(
         loc='upper right',
         child=VPacker(children=rows, align='left', pad=0, sep=3),
-        frameon=True,
-        pad=0.15,
-        borderpad=0.75,
+        frameon=True, pad=0.15, borderpad=0.75,
     )
     legend.patch.set_alpha(plt.rcParams['legend.framealpha'])
     legend.patch.set_edgecolor(plt.rcParams['legend.edgecolor'])
@@ -89,8 +79,8 @@ def add_legend(ax, legend_entries):
 
 
 def get_logfile_paths(logfile):
-    path = Path(f'results/{logfile}.txt')
-    if path.parent == Path('results'):
+    path = track_dir / 'results' / f'{logfile}.txt'
+    if path.parent == track_dir / 'results':
         return [path]
     return sorted(path.parent.glob('*.txt'))
 
@@ -155,36 +145,35 @@ for i, (number, label) in enumerate(logfiles.items()):
         if step <= steps_to_target
     ]
     if not kept_points:
-        raise RuntimeError(f'No loss curve points found at or before step {steps_to_target} for results/{logfile}.txt')
+        raise RuntimeError(f'No loss curve points found at or before step {steps_to_target}')
     steps, losses = zip(*kept_points)
-
     max_step = max(max_step, max(steps))
     results[number] = (label, steps_to_target, evidence, steps, losses, color)
 
+pmuon_dir = Path(__file__).resolve().parent
+pmuon_runs = []
+for path in sorted(pmuon_dir.glob('*.txt')):
+    pmuon_runs.extend(parse_logfile(path))
+if pmuon_runs:
+    pmuon_steps_to_target = 3225
+    pmuon_steps, pmuon_losses = average_runs(pmuon_runs)
+    kept = [(s, l) for s, l in zip(pmuon_steps, pmuon_losses) if s <= pmuon_steps_to_target]
+    pmuon_steps, pmuon_losses = zip(*kept)
+    max_step = max(max_step, max(pmuon_steps))
+    pmuon_color = color_cycle[len(logfiles) % len(color_cycle)]
+    results[13] = ('PMuon', pmuon_steps_to_target,
+                    f'3.2778 (n={len(pmuon_runs)})\u2713',
+                    pmuon_steps, pmuon_losses, pmuon_color)
 
-# Generate figure
 fig, ax = plt.subplots(figsize=(5.5, 4), dpi=300)
 legend_entries = []
 for label, steps_to_target, evidence, steps, losses, color in results.values():
-    legend_entries.append((label, f'→ {format_evidence(evidence, steps_to_target)}', color))
-    ax.plot(
-        steps,
-        losses,
-        marker='o',
-        markersize=3.5,
-        linewidth=2.2,
-        color=color,
-    )
+    legend_entries.append((label, f'\u2192 {format_evidence(evidence, steps_to_target)}', color))
+    ax.plot(steps, losses, marker='o', markersize=3.5, linewidth=2.2, color=color)
 ax.axhline(3.28, color='gray', linestyle='--', linewidth=1.5)
-ax.annotate(
-    'target=3.28',
-    xy=(0, 3.28),
-    xytext=(8, 6),
-    textcoords='offset points',
-    color='gray',
-    fontsize=9,
-)
-ax.set_title('Modded-NanoGPT Optimization Benchmark as of 2026/05/01', pad=11, fontsize=11)
+ax.annotate('target=3.28', xy=(0, 3.28), xytext=(8, 6),
+            textcoords='offset points', color='gray', fontsize=9)
+ax.set_title('Modded-NanoGPT Optimization Benchmark as of 2026/05/07', pad=11, fontsize=11)
 ax.set_xlabel('Training steps @ 0.5M bsz', fontsize=11)
 ax.set_ylabel('Validation loss', fontsize=11)
 add_legend(ax, legend_entries)
@@ -192,10 +181,8 @@ ax.set_xlim(0, math.ceil(max_step / 1000) * 1000)
 ax.set_ylim(3.15, 4.0)
 ax.tick_params(axis='both', which='major', labelsize=10)
 fig.tight_layout()
-fig.savefig('figure.png', bbox_inches='tight')
+fig.savefig(pmuon_dir / 'figure.png', bbox_inches='tight')
 
-
-# Generate zoomed-in figure
 zoom_min_step = 3000
 zoom_max_step = 3400
 zoom_results = [
@@ -211,25 +198,12 @@ zoom_losses = [
 fig, ax = plt.subplots(figsize=(5.5, 4), dpi=300)
 legend_entries = []
 for label, steps_to_target, evidence, steps, losses, color in zoom_results:
-    legend_entries.append((label, f'→ {format_evidence(evidence, steps_to_target)}', color))
-    ax.plot(
-        steps,
-        losses,
-        marker='o',
-        markersize=3.5,
-        linewidth=2.2,
-        color=color,
-    )
+    legend_entries.append((label, f'\u2192 {format_evidence(evidence, steps_to_target)}', color))
+    ax.plot(steps, losses, marker='o', markersize=3.5, linewidth=2.2, color=color)
 ax.axhline(3.28, color='gray', linestyle='--', linewidth=1.5)
-ax.annotate(
-    'target=3.28',
-    xy=(zoom_min_step, 3.28),
-    xytext=(8, 6),
-    textcoords='offset points',
-    color='gray',
-    fontsize=9,
-)
-ax.set_title('Modded-NanoGPT Optimization Benchmark as of 2026/05/01', pad=11, fontsize=11)
+ax.annotate('target=3.28', xy=(zoom_min_step, 3.28), xytext=(8, 6),
+            textcoords='offset points', color='gray', fontsize=9)
+ax.set_title('Modded-NanoGPT Optimization Benchmark as of 2026/05/07', pad=11, fontsize=11)
 ax.set_xlabel('Training steps @ 0.5M bsz', fontsize=11)
 ax.set_ylabel('Validation loss', fontsize=11)
 add_legend(ax, legend_entries)
@@ -239,4 +213,6 @@ if zoom_losses:
     ax.set_ylim(min(zoom_losses) - zoom_margin, max(zoom_losses) + zoom_margin)
 ax.tick_params(axis='both', which='major', labelsize=10)
 fig.tight_layout()
-fig.savefig('zoomed_figure.png', bbox_inches='tight')
+fig.savefig(pmuon_dir / 'zoomed_figure.png', bbox_inches='tight')
+
+print('Figures saved to', pmuon_dir)
