@@ -67,7 +67,7 @@ class CompressedLayer(torch.autograd.Function):
 
         with torch.enable_grad():
             x_next = ctx.layer_fn(x_approx)
-        torch.autograd.backward(x_next, grad_next)
+        torch.autograd.backward(x_next, grad_next, inputs=[x_approx])
         return x_approx.grad, None, None, None
 
 
