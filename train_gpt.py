@@ -1,13 +1,5 @@
 import os
 import sys
-
-# Read the current file and the kernels file code ASAP, for logging
-with open(sys.argv[0], 'r') as f:
-    code = f.read()
-with open(os.path.join(os.path.dirname(sys.argv[0]), 'triton_kernels.py'), 'r') as f:
-    code += f"\n\n{'-'*40}\n# triton_kernels.py\n{'-'*40}\n\n"
-    code += f.read()
-
 import copy
 import glob
 import math
@@ -1872,9 +1864,18 @@ if __name__ == "__main__":
                     print(s)
                 print(s, file=f)
     
+    # Read the current file and the kernels file code for logging
+    with open(sys.argv[0], "r") as f:
+        code = f.read()
+    with open(
+        os.path.join(os.path.dirname(sys.argv[0]), "triton_kernels.py"), "r"
+    ) as f:
+        code += (
+            f"\n\n{'-' * 40}\n# triton_kernels.py\n{'-' * 40}\n\n" + f.read()
+        )
     # begin by printing this file (the Python code)
     print0(code)
-    print0("="*100)
+    print0("=" * 100)
     # log information about the hardware/software environment this is running on
     print0(f"Running Python {sys.version}")
     print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}")
