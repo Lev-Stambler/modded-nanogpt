@@ -1164,6 +1164,8 @@ class ForwardScheduleConfig:
     ws_short: int
     ws_long: int
     train_max_seq_len: int
+    compression_coeffs: torch.Tensor | None = None
+    compression_segment_len: int = 0
 
 class GPT(nn.Module):
     def __init__(self, vocab_size: int, num_layers: int, num_heads: int, head_dim: int, model_dim: int, max_seq_len: int):
@@ -1361,14 +1363,43 @@ class GPT(nn.Module):
             # Select attention variant for this layer
             attn = self.attn_paired if i in self.paired_head_layers else self.attn
 
-            # Skip attention on layer 6 @YouJiacheng. Instead pull skip connection from prior long window
-            if i == 6:
-                x = x + skip_gate_out * skip_connection
+            # Activation compression: wrap full layer for layers 0-5
+            if (
+                i < 6
+                and schedule_cfg.compression_coeffs is not None
+                and self.training
+            ):
+                coeffs = schedule_cfg.compression_coeffs
+                seg_len = schedule_cfg.compression_segment_len
+
+                def _layer_fn(x_in):
+                    attn_out = attn(norm(x_in), attn_args, qkvo_w)
+                    x_out = (
+                        resid_lambdas_attn[i] * x_in
+                        + post_lambdas_attn[i] * attn_out
+                        + x0_inject[i]
+                    )
+                    x_out = (
+                        resid_lambdas_mlp[i] * x_out
+                        + post_lambdas_mlp[i]
+                        * ReLUSqrdMLP(norm(x_out), c_fc, c_proj)
+                    )
+                    return x_out
+
+                from compressed_checkpoint import CompressedLayer
+
+                x = CompressedLayer.apply(
+                    x, _layer_fn, coeffs.to(device=x.device), seg_len
+                )
             else:
-                attn_in = x_backout if x_backout is not None else x
-                attn_out = attn(norm(attn_in), attn_args, qkvo_w)
-                x = resid_lambdas_attn[i] * x + post_lambdas_attn[i] * attn_out + x0_inject[i]
-            x = resid_lambdas_mlp[i] * x + post_lambdas_mlp[i] * ReLUSqrdMLP(norm(x), c_fc, c_proj)
+                # Skip attention on layer 6 @YouJiacheng. Instead pull skip connection from prior long window
+                if i == 6:
+                    x = x + skip_gate_out * skip_connection
+                else:
+                    attn_in = x_backout if x_backout is not None else x
+                    attn_out = attn(norm(attn_in), attn_args, qkvo_w)
+                    x = resid_lambdas_attn[i] * x + post_lambdas_attn[i] * attn_out + x0_inject[i]
+                x = resid_lambdas_mlp[i] * x + post_lambdas_mlp[i] * ReLUSqrdMLP(norm(x), c_fc, c_proj)
             if i == 3:
                 skip_connection = x
             if i == 7:
