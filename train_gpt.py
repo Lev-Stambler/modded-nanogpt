@@ -24,7 +24,6 @@ import torch.distributed as dist
 import torch.nn.functional as F
 
 # torch._inductor.config.coordinate_descent_tuning = True # we have banned this flag for new records because it causes compilation to take 30min
-from kernels import get_kernel
 from torch import Tensor, nn
 
 from triton_kernels import XXT, XTX, ba_plus_cAA, FusedLinearReLUSquareFunction, FusedSoftcappedCrossEntropy, transpose_add, transpose_copy
@@ -1119,9 +1118,33 @@ class CausalSelfAttention(nn.Module):
             max_len = 2 * max_len
 
         # use flash_attn over flex_attn @varunneal. flash_attn_varlen suggested by @YouJiacheng
-        y = _fa_varlen(q[0], k[0], v[0], cu_seqlens_q=seqlens, cu_seqlens_k=seqlens,
-                        max_seqlen_q=max_len, max_seqlen_k=max_len,
-                        causal=True, softmax_scale=yarn.attn_scale, window_size=(bm_size, 0))
+        if _fa_varlen is not None:
+            y = _fa_varlen(q[0], k[0], v[0], cu_seqlens_q=seqlens, cu_seqlens_k=seqlens,
+                            max_seqlen_q=max_len, max_seqlen_k=max_len,
+                            causal=True, softmax_scale=yarn.attn_scale, window_size=(bm_size, 0))
+        else:
+            # Fallback: loop over documents with SDPA (slower, no sliding window)
+            q_s, k_s, v_s = q[0], k[0], v[0]  # (T, H, D)
+            starts = seqlens[:-1]
+            ends = seqlens[1:]
+            max_doc_len = int((ends - starts).max().item())
+            outputs = []
+            for s, e in zip(starts, ends):
+                doc_len = int(e - s)
+                pad_len = max_doc_len - doc_len
+                q_d = F.pad(q_s[s:e], (0,0,0,0,0,0,0,pad_len))
+                k_d = F.pad(k_s[s:e], (0,0,0,0,0,0,0,pad_len))
+                v_d = F.pad(v_s[s:e], (0,0,0,0,0,0,0,pad_len))
+                out = F.scaled_dot_product_attention(
+                    q_d.unsqueeze(0).transpose(1, 2),
+                    k_d.unsqueeze(0).transpose(1, 2),
+                    v_d.unsqueeze(0).transpose(1, 2),
+                    is_causal=True,
+                    scale=yarn.attn_scale,
+                )
+                out = out.transpose(1, 2).squeeze(0)
+                outputs.append(out[:doc_len])
+            y = torch.cat(outputs, dim=0).unsqueeze(0)
         y = y.view(B, T, self.num_heads, self.head_dim)
         y = y * torch.sigmoid(F.linear(x[..., :12], attn_gate_w)).view(B, T, self.num_heads, 1)
         y = y.contiguous().view(B, T, self.num_heads * self.head_dim) # re-assemble all head outputs side by side
