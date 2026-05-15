@@ -1379,12 +1379,12 @@ class GPT(nn.Module):
         x = norm(x)
         # @Grad62304977 added tanh softcapping following Gemma 2 paper, @KoszarskyB reduced it from 30 to 15
         # @YouJiacheng shifted it by +15 (2*sigmoid(2*x)=tanh(x)+1). @classiclarryd updated to 23*sigmoid((logits+5)/7.5)
+        logits = self.lm_head(x)
+        logits = 23 * torch.sigmoid((logits + 5) / 7.5)
+        logits_for_loss = logits.float()
         if self.training:
-            loss_per_token = FusedSoftcappedCrossEntropy.apply(x.view(-1, x.size(-1)), target_seq, mtp_weights, self.lm_head.weight, self.lm_head.x_s, self.lm_head.w_s, self.lm_head.grad_s, grad_scale)
+            loss_per_token = F.cross_entropy(logits_for_loss.view(-1, logits_for_loss.size(-1)), target_seq, reduction="none")
         else:
-            logits = self.lm_head(x)
-            logits = 23 * torch.sigmoid((logits + 5) / 7.5)
-            logits_for_loss = logits.float()
             loss_per_token = F.cross_entropy(logits_for_loss.view(-1, logits_for_loss.size(-1)), target_seq, reduction="none")
         return loss_per_token
 # -----------------------------------------------------------------------------
