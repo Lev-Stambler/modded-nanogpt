@@ -1132,9 +1132,9 @@ class CausalSelfAttention(nn.Module):
             for s, e in zip(starts, ends):
                 doc_len = int(e - s)
                 pad_len = max_doc_len - doc_len
-                q_d = F.pad(q_s[s:e], (0,0,0,0,0,0,0,pad_len))
-                k_d = F.pad(k_s[s:e], (0,0,0,0,0,0,0,pad_len))
-                v_d = F.pad(v_s[s:e], (0,0,0,0,0,0,0,pad_len))
+                q_d = F.pad(q_s[s:e], (0, 0, 0, 0, 0, pad_len))
+                k_d = F.pad(k_s[s:e], (0, 0, 0, 0, 0, pad_len))
+                v_d = F.pad(v_s[s:e], (0, 0, 0, 0, 0, pad_len))
                 out = F.scaled_dot_product_attention(
                     q_d.unsqueeze(0).transpose(1, 2),
                     k_d.unsqueeze(0).transpose(1, 2),
