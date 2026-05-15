@@ -14,16 +14,12 @@ _compression_config = None
 
 def _get_projector(seq_len, attn_dim, compression_rank):
     """Build Hadamard piecewise projector for the given dimensions."""
-    from instant_projectors.piecewise import (
-        piecewise_coefficients_for,
-        piecewise_project,
-    )
-
-    if seq_len & (seq_len - 1) != 0:
-        raise ValueError(f"seq_len {seq_len} must be a power of 2 for Hadamard")
+    from instant_projectors import piecewise_coefficients_for  # noqa: F811
 
     coeffs, segment_len = piecewise_coefficients_for(
-        dim=attn_dim, max_seq_len=seq_len, compression_rank=compression_rank
+        kind="hadamard",
+        seq_len=seq_len,
+        rank=compression_rank,
     )
     return coeffs, segment_len
 
@@ -44,7 +40,7 @@ class CompressedLayer(torch.autograd.Function):
         x_next = layer_fn(x)
 
         with torch.no_grad():
-            from instant_projectors.piecewise import piecewise_project
+            from instant_projectors import piecewise_project
 
             x_proj = piecewise_project(x.detach(), coeffs, segment_len=segment_len)
 
