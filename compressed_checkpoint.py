@@ -13,11 +13,11 @@ _compression_config = None
 
 
 def _get_projector(seq_len, attn_dim, compression_rank):
-    """Build Hadamard piecewise projector for the given dimensions."""
+    """Build piecewise projector for the given dimensions."""
     from instant_projectors import piecewise_coefficients_for  # noqa: F811
 
     coeffs, segment_len = piecewise_coefficients_for(
-        kind="hadamard",
+        kind="dct",  # DCT works for any seq_len (Hadamard needs power-of-2)
         seq_len=seq_len,
         rank=compression_rank,
     )
