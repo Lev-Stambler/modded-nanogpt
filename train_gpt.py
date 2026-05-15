@@ -1051,7 +1051,10 @@ class AttnArgs:
     ve_gate_w: torch.Tensor
     train_max_seq_len: torch.Tensor
 
-flash_attn_interface = get_kernel('varunneal/flash-attention-3').flash_attn_interface
+try:
+    from flash_attn import flash_attn_varlen_func as _fa_varlen
+except ImportError:
+    _fa_varlen = None
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, dim: int, head_dim: int, num_heads: int, paired: bool = False):
@@ -1116,9 +1119,9 @@ class CausalSelfAttention(nn.Module):
             max_len = 2 * max_len
 
         # use flash_attn over flex_attn @varunneal. flash_attn_varlen suggested by @YouJiacheng
-        y = flash_attn_interface.flash_attn_varlen_func(q[0], k[0], v[0], cu_seqlens_q=seqlens, cu_seqlens_k=seqlens,
-                                                        max_seqlen_q=max_len, max_seqlen_k=max_len,
-                                                        causal=True, softmax_scale=yarn.attn_scale, window_size=(bm_size, 0))
+        y = _fa_varlen(q[0], k[0], v[0], cu_seqlens_q=seqlens, cu_seqlens_k=seqlens,
+                        max_seqlen_q=max_len, max_seqlen_k=max_len,
+                        causal=True, softmax_scale=yarn.attn_scale, window_size=(bm_size, 0))
         y = y.view(B, T, self.num_heads, self.head_dim)
         y = y * torch.sigmoid(F.linear(x[..., :12], attn_gate_w)).view(B, T, self.num_heads, 1)
         y = y.contiguous().view(B, T, self.num_heads * self.head_dim) # re-assemble all head outputs side by side
