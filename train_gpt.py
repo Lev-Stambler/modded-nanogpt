@@ -904,16 +904,16 @@ class NorMuonAndAdam:
         bfloat16 format: 1 sign bit + 8 exponent bits + 7 mantissa bits = 16 bits total
         float32 format: 1 sign bit + 8 exponent bits + 23 mantissa bits = 32 bits total
         """
-    assert p.dtype == mantissa.dtype == torch.uint16
-    grad = grad.float()
-    wd_factor = wd_tensor.to(torch.float32)
-    lr_factor = lr_tensor.to(torch.float32)
-    p_precise_raw = p.to(torch.int32) * 65536 + mantissa.to(torch.int32)
-    p_precise = p_precise_raw.view(torch.float32)
-    mask = (grad * p_precise) >= 0
-    p_precise.copy_(p_precise - (p_precise * mask * wd_factor * lr_factor) - (grad * lr_factor))
-    p.copy_((p_precise_raw >> 16).to(torch.uint16))
-    mantissa.copy_(p_precise_raw.to(torch.uint16))
+        assert p.dtype == mantissa.dtype == torch.uint16
+        grad = grad.float()
+        wd_factor = wd_tensor.to(torch.float32)
+        lr_factor = lr_tensor.to(torch.float32)
+        p_precise_raw = p.to(torch.int32) * 65536 + mantissa.to(torch.int32)
+        p_precise = p_precise_raw.view(torch.float32)
+        mask = (grad * p_precise) >= 0
+        p_precise.copy_(p_precise - (p_precise * mask * wd_factor * lr_factor) - (grad * lr_factor))
+        p.copy_((p_precise_raw // 65536).to(torch.uint16))
+        mantissa.copy_(p_precise_raw.to(torch.uint16))
 
     @staticmethod
     @torch.compile(dynamic=False, fullgraph=True)
